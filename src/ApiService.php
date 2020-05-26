@@ -34,26 +34,39 @@ class ApiService {
                'Authorization: Token 59f181f3e1f421c05cc96660134e9b7d1e008520',
                'Account-Token: a24faf79f8',
                'Accept: */*',
-               'Accept-Encoding: gzip, deflate',
                'content-type: application/json'
             ];
+            //'Accept-Encoding: gzip, deflate', : part of the headers variable
+
             curl_setopt($curl, CURLOPT_HTTPHEADER, $headers);
          }
          curl_setopt($curl, CURLOPT_URL, $url);
          curl_setopt($curl, CURLOPT_RETURNTRANSFER, 1);
+
          if(!IN_SERVER && ($appType != 'fleetio')) {
             $proxy = '159.65.88.174:12455';
             $credentials = 'ecagon:sqskynet123uid@';
             curl_setopt($curl, CURLOPT_PROXY, $proxy); // $proxy is ip of proxy server
             curl_setopt($curl, CURLOPT_PROXYUSERPWD,$credentials);
          }
+
          curl_setopt($curl, CURLOPT_SSL_VERIFYPEER, 0);
          curl_setopt($curl, CURLOPT_SSL_VERIFYHOST, 0);
          curl_setopt($curl, CURLOPT_CONNECTTIMEOUT, 10);
          curl_setopt($curl, CURLOPT_TIMEOUT, 10);
+
          $this->returnedData = curl_exec($curl);
+         echo "Returned Data:";
+         echo $this->returnedData;
+         echo "<br/>Response Data Before curl_error:<br/>";
+         echo $this->returnedData;
+         echo "<br/>Response Data Before curl_error:<br/><br/>";
          if ($this->returnedData === false || $this->returnedData == null) 
             $this->returnedData = curl_error($curl);
+
+         echo "<br/>Response Data:<br/>";
+         echo $this->returnedData;
+         echo "<br/>Response Data:<br/><br/>";
       } catch(Exception $exception) {
          echo "Exception Occured: ".$exception."<br/>";
       }

@@ -5,6 +5,7 @@ class Database {
 
     public static function selectFromTable($query)
     {
+        echo "Query: ".$query."<br/>";
         $result = mysqli_query($GLOBALS['db_server'], $query);
         $count = mysqli_num_rows($result);
         return $count > 0 ? mysqli_fetch_all($result, MYSQLI_BOTH): 0;

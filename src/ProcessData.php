@@ -32,8 +32,10 @@ class ProcessData {
     public $errors;
     private $currentDateTime;
     private $isInitialization;
+    private $addNewVehicles;
     private $fleetioUpdate = false;
     private $pushUpdated = 0;
+
 
     function  __construct() {
         $this->_apiService = new ApiService();
@@ -49,13 +51,11 @@ class ProcessData {
         $tableRow = Database::getSingleRow($query);
         $lastPullTime = $tableRow["value"];
         // echo "lastPullTime : ".$lastPullTime;
-        $this->apiURL = "https://sdk.galooli-systems.com/galooliSDKService.svc/json/Assets_Report?userName=matrixvtrack&password=matv123?&requestedPropertiesStr=u.id,u.name,ac.status,ac.latitude,ac.longitude,ac.distance,ac.main_fuel_tank_level&lastGmtUpdateTime=".str_replace(" ","%20",$lastPullTime);
+        $this->apiURL = "https://sdk.galooli-systems.com/galooliSDKService.svc/json/Assets_Report?userName=matrixvtrack&password=MATv123?&requestedPropertiesStr=u.unit_id,u.unit_name,ac.status,ac.latitude,ac.longitude,ac.current_odometer_reading,ac.main_fuel_tank_level&lastGmtUpdateTime=".str_replace(" ","%20",$lastPullTime);
         $get_data = $this->_apiService->callAPI('GET', $this->apiURL, false, 'galooli');
         $this->currentDateTime = date("Y-m-d H:i:s");
         $this->returnedData = json_decode($get_data, true);
 
-        //var_dump($this->returnedData['CommonResult']['DataSet']);
-        echo "<br><br>";
         $pullUpdated = 0;
         if($this->returnedData != null && count($this->returnedData) != 0) {
             
@@ -68,6 +68,9 @@ class ProcessData {
             }
             $this->currentDateTime = date("Y-m-d h:i:s");
             //update fetch status
+            
+            echo $returnedData['1']."  ";
+            echo $returnedData['4']."<br/>";
 
             $this->updateErrorData('pull_error_time', 0);
 
@@ -118,6 +121,65 @@ class ProcessData {
                 $this->sendErrorNotificationMail("A Network Error Occured during a get request from galooli server, 
                 Could Not Fetch Data, a re-trial will occur in 2 mins");
             }
+        }
+    }
+
+    function updateTable()
+    {
+        $currentDateTime = date("Y-m-d H:i:s");
+        $this->apiURL = "https://sdk.galooli-systems.com/galooliSDKService.svc/json/Assets_Report?userName=matrixvtrack&password=MATv123?&requestedPropertiesStr=u.unit_id,u.unit_name,ac.status,ac.latitude,ac.longitude,ac.current_odometer_reading,ac.main_fuel_tank_level&lastGmtUpdateTime=".str_replace(" ","%20",$currentDateTime);
+        $get_data = $this->_apiService->callAPI('GET', $this->apiURL, false, 'galooli');
+        $this->returnedData = json_decode($get_data, true);
+        //var_dump($this->returnedData) ;
+        echo "<br/><br/>";
+        if($this->returnedData != null && count($this->returnedData) != 0) {
+            $this->addNewVehicles = true;
+            foreach($this->returnedData['CommonResult']['DataSet'] as $returnedData) {
+                $checkExistQuery = "SELECT unit_name FROM pull_report WHERE unit_name = '".$returnedData['1']."' LIMIT 1";
+                $recordExists = Database::getSingleRow($checkExistQuery);
+                //var_dump($recordExists) ;
+                //if count is equals zero
+                echo "New Unit: ".$recordExists['unit_name']." Existing Unit: ".$returnedData['1']."<br/>";
+                var_dump($recordExists['unit_name']) ;
+                
+                if($recordExists == 0 ) {
+                    echo "No Record Exists<br/><br/>";
+                    $updateRecordQuery = "INSERT INTO pull_report(unit_id, unit_name, active_status, latitude, longitude, distance, fuel_report, engine_hours, created_at) 
+                                    VALUES('".$returnedData['0']."','".$returnedData['1']."','".$returnedData['2']."','".$returnedData['3']."'
+                                    ,'".$returnedData['4']."','".$returnedData['5']."','".$returnedData['6']."','".$returnedData['7']."', NOW())";
+                    
+                    //update mappings table
+                    $saveIDQuery = "INSERT INTO id_mapping(id_galooli, plate_number) 
+                    VALUES('".$returnedData['0']."','".$returnedData['1']."')";
+                    if (Database::updateOrInsert($saveIDQuery)) {
+                        echo "IDs inserted into query  ";
+                    } else {
+                        echo "Error updating galooli ID record in mappings table: " . mysqli_error($GLOBALS['db_server'])."<br/>";
+                    }
+
+                    //insert new record in galooli table
+                    $pullUpdated = 0;
+                    if (Database::updateOrInsert($updateRecordQuery)) {
+                        $pullUpdated++;
+                    } else {
+                        echo "Error updating galooli table record: " . mysqli_error($GLOBALS['db_server'])."<br/>";
+                        echo "Could not insert Unit {$recordExists['unit_name']}";
+                    }
+
+                    //insert into fleetio table after mapping
+                    
+                    $this->saveToFleetioTable($returnedData);
+                } else {
+                    echo "Unit {$recordExists['unit_name']} already exists";
+                }
+                echo "<br/><br/>";
+            }
+            
+            //Check if the car model exists in our database
+            //if it doesn't exist insert in pull database
+            
+            //update map IDs
+            $this->pullDataFromFleetio();
         }
     }
 
@@ -173,16 +235,20 @@ class ProcessData {
 
     }
 
-    //NB: this is used for initialization
+    //NB: this is used for initialization and update
     function pullDataFromFleetio()
     {
+        echo "<br/><br/>Pulling Data From Fleetio<br/>";
         $this->apiURL = "https://secure.fleetio.com/api/v1/vehicles";
         $get_data = $this->_apiService->callAPI('GET', $this->apiURL, false, 'fleetio');
+        echo "<br/><br/>Var Dump:<br/>";
+        var_dump($get_data);
         $this->returnedData = json_decode($get_data, true);
         foreach($this->returnedData as $returnedData) {
             echo $returnedData['id']. ' ' . $returnedData['name'];
             $this->mapCorrespondingIds($returnedData['id'], $returnedData['name']);
         }
+        //$this->checkforChangeWithinLastHour();
     }
 
     function updateErrorData($name, $value)
@@ -232,7 +298,8 @@ class ProcessData {
             $odometerDifference = $tableRow["value"];
             for($i = 0; $i < count($galooliTableRows);  $i++) {
                 $distanceTest = $galooliTableRows[$i]['distance'] - $fleetioTableRows[$i]['distance'];
-                echo "<br><br>Status: ".$galooliTableRows[$i]['unit_name'];
+                echo "<br><br>Current Odometer: ".$galooliTableRows[$i]['distance'];
+                echo "<br><br>Name: ".$galooliTableRows[$i]['unit_name'];
                 echo "<br>Status: ".$galooliTableRows[$i]['active_status'];
                 echo "<br>Difference in odometer: ".$distanceTest;
                 if(($distanceTest >= $odometerDifference) &&
@@ -333,7 +400,7 @@ class ProcessData {
     }
 
     function saveToFleetioTable($galooliRow) {
-        if ($this->isInitialization) {
+        if ($this->isInitialization || $this->addNewVehicles) {
             $updateRecordQuery = "INSERT INTO push_report(unit_id, unit_name, active_status, latitude, longitude, distance, fuel_report, engine_hours, created_at) 
                     VALUES('".$galooliRow['0']."','".$galooliRow['1']."','".$galooliRow['2']."','".$galooliRow['3']."'
                     ,'".$galooliRow['4']."','".$galooliRow['5']."','".$galooliRow['6']."','".$galooliRow['7']."', NOW())";
@@ -347,7 +414,7 @@ class ProcessData {
         if (Database::updateOrInsert($updateRecordQuery)) {
             $this->pushUpdated++;
         } else {
-            echo "Error updating record: " . mysqli_error($GLOBALS['db_server'])."<br/>";
+            echo "Error updating fleetio table record: " . mysqli_error($GLOBALS['db_server'])."<br/>";
         }
     }
 

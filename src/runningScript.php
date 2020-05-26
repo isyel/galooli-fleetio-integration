@@ -3,7 +3,7 @@
 <head>
   <title>Galooli | Fleetio Integration Interface</title>
   <?php require_once('partials/head.php'); ?>
-  <meta http-equiv="refresh" content="120" > 
+  <!-- <meta http-equiv="refresh" content="120" >  -->
 </head>
 <body>
 
@@ -16,7 +16,7 @@ $processData = new ProcessData();
 
 echo '<div style="margin:auto; width: 800px">';
 echo "<a href='".path('index.php')."'>Back To Home Page</a>";
-$responseData = $processData->pullDataFromGalooli(false);
+$responseData = $processData->pullDataFromFleetio();
 echo "</div>";
 
 ?>
